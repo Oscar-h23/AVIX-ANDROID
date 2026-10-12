@@ -52,7 +52,12 @@ android {
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
-      signingConfig = signingConfigs.getByName("debugConfig")
+      // Si el keystore de CI no existe, usar el keystore de debug generado por Android.
+      signingConfig = if (file("${rootDir}/debug.keystore").exists()) {
+        signingConfigs.getByName("debugConfig")
+      } else {
+        signingConfigs.getByName("debug")
+      }
     }
   }
   compileOptions {

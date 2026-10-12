@@ -90,6 +90,27 @@ class IncidentRepositoryTest {
                 },
                 startBackground = false
             )
+
+        // Inyectar lista de vías del backend antes de crear registros locales.
+        runBlocking { repository.cargarViasPermitidas() }
+    }
+
+    @Test
+    fun `empty server via list cannot authorize any road`() = runBlocking {
+        api.vias = emptyList()
+        repository.cargarViasPermitidas()
+
+        assertFalse(repository.isViaPermitida(101))
+        assertFalse(repository.isViaPermitida(999))
+
+        val result = repository.registrarIncidencia(
+            placa = "ABC123",
+            via = 101,
+            accion = "FUGA",
+            fechaHoraEvento = "2026-10-12T18:00:00-05:00",
+            textoReconocido = "prueba"
+        )
+        assertTrue(result.isFailure)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -117,6 +138,7 @@ class IncidentRepositoryTest {
                     ioDispatcher = testDispatcher,
                     startBackground = false
                 )
+            gatedRepository.cargarViasPermitidas()
 
             try {
                 val draft =

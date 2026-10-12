@@ -235,11 +235,8 @@ class IncidentRepository internal constructor(
     fun isViaPermitida(
         via: Int
     ): Boolean {
-        return via > 0 &&
-            (
-                _allowedVias.value.isEmpty() ||
-                    via in _allowedVias.value
-                )
+        // Una respuesta vacía no significa autorización para cualquier vía.
+        return via > 0 && via in _allowedVias.value
     }
 
     fun isUsuarioAutenticado(): Boolean =

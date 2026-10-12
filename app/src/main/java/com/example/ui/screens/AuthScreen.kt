@@ -183,7 +183,7 @@ fun AviLoginScreen(repository: IncidentRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var codigoInput by remember { mutableStateOf("2396") }
+    var codigoInput by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showUrlDialog by remember { mutableStateOf(false) }

@@ -111,6 +111,29 @@ class AviParserShortViaTest {
     }
 
     @Test
+    fun `bubble normalizes a recognized numeric lane after plaza catalog arrives`() {
+        val vias = setOf(101, 105, 151, 152)
+        // Antes de cargar la plaza el dictado ya contiene un número.
+        assertEquals(51, AviParser.normalizeViaNumber("51", emptySet()))
+
+        // Al cargar SIGO se convierte sin modificar acción ni placa.
+        assertEquals(151, AviParser.normalizeViaNumber("51", vias))
+        assertEquals(105, AviParser.normalizeViaNumber("105", vias))
+        assertEquals(101, AviParser.normalizeViaNumber("101", vias))
+        assertEquals(102, AviParser.normalizeViaNumber("02", setOf(101, 102)))
+    }
+
+    @Test
+    fun `bubble cannot normalize an invalid or unauthorized lane`() {
+        val vias = setOf(101, 105, 151)
+        assertEquals(null, AviParser.normalizeViaNumber("", vias))
+        assertEquals(null, AviParser.normalizeViaNumber("vía 51", vias))
+        assertEquals(null, AviParser.normalizeViaNumber("ABC123", vias))
+        assertEquals(52, AviParser.normalizeViaNumber("52", vias))
+        assertFalse(AviParser.normalizeViaNumber("52", vias) in vias)
+    }
+
+    @Test
     fun `speech biasing contains short and full lane phrases`() {
         val phrases = AviParser.recognitionBiasingPhrases(vias)
         assertTrue("vía 151" in phrases)

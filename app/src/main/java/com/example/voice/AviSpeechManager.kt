@@ -969,7 +969,9 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                 val shouldUseOnDevice =
                     !networkAvailable && onDeviceAvailable
 
-                if (!networkAvailable && !onDeviceAvailable) {
+                if (!networkAvailable && !onDeviceAvailable &&
+                    !SpeechRecognizer.isRecognitionAvailable(appContext)
+                ) {
                     speechRecognizer?.destroy()
                     speechRecognizer = null
                     isRecognizerAvailable = false
@@ -1019,7 +1021,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    val language = if (shouldUseOnDevice) {
+                    val language = if (!networkAvailable) {
                         offlineSpanishLanguages[offlineLanguageAttempt]
                     } else {
                         "es-PE"

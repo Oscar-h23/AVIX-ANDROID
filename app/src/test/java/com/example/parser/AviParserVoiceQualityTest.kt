@@ -94,4 +94,100 @@ class AviParserVoiceQualityTest {
         assertTrue(corrected.errores.joinToString(), corrected.valido)
         assertEquals("A1L110", corrected.placa)
     }
+
+    @Test
+    fun `number before placa is classified as via even without action`() {
+        val result = AviParser.parse("105 placa ABC123", setOf(105))
+        assertEquals(105, result.via)
+        assertEquals("ABC123", result.placa)
+        assertFalse("Missing action must still require review", result.valido)
+        assertTrue(result.errores.any { it.contains("acción") })
+        assertFalse(result.errores.any { it.contains("VÍA") })
+    }
+
+    @Test
+    fun `inferred via and explicit via produce same valid fields`() {
+        val allowed = setOf(105)
+        val inferred = AviParser.parse("fuga 105 placa ABC123", allowed)
+        val explicit = AviParser.parse("fuga vía 105 placa ABC123", allowed)
+
+        assertTrue(inferred.errores.joinToString(), inferred.valido)
+        assertTrue(explicit.errores.joinToString(), explicit.valido)
+        assertEquals(explicit.via, inferred.via)
+        assertEquals(explicit.placa, inferred.placa)
+        assertEquals(explicit.accion, inferred.accion)
+        assertEquals("fuga via 105 placa abc123",
+            AviParser.normalize("fuga vía 105 placa ABC123"))
+    }
+
+    @Test
+    fun `only immediately preceding number becomes via`() {
+        val parsed = AviParser.parse(
+            "fuga 101 105 placa ABC123",
+            allowedVias = setOf(101, 105)
+        )
+        assertTrue(parsed.errores.joinToString(), parsed.valido)
+        assertEquals(105, parsed.via)
+        assertEquals("ABC123", parsed.placa)
+    }
+
+    @Test
+    fun `missing placa or intervening words do not infer via`() {
+        val withoutPlaca = AviParser.parse("fuga 105 ABC123", setOf(105))
+        val interveningWord = AviParser.parse(
+            "fuga 105 vehiculo placa ABC123", setOf(105)
+        )
+        assertEquals(null, withoutPlaca.via)
+        assertEquals(null, interveningWord.via)
+        assertFalse(withoutPlaca.valido)
+        assertFalse(interveningWord.valido)
+    }
+
+    @Test
+    fun `inferred via is still checked against plaza permissions`() {
+        val parsed = AviParser.parse(
+            "derivado 105 placa ABC123", setOf(101)
+        )
+        assertEquals(105, parsed.via)
+        assertFalse(parsed.valido)
+        assertTrue(parsed.errores.any { it.contains("no está habilitada") })
+    }
+
+    @Test
+    fun `explicit Q code via remains intact`() {
+        val parsed = AviParser.parse(
+            "liberado vía primero negativo quinto placa ABC123", setOf(105)
+        )
+        assertTrue(parsed.errores.joinToString(), parsed.valido)
+        assertEquals(105, parsed.via)
+        assertEquals("ABC123", parsed.placa)
+    }
+
+    @Test
+    fun `hypothesis fusion keeps inferred via and explicit via compatible`() {
+        val result = AviParser.fuseHypotheses(
+            listOf(
+                "fuga 105 placa ABC123",
+                "fuga vía 105 placa ABC123"
+            ),
+            allowedVias = setOf(105)
+        )
+        assertEquals(105, result.parsed.via)
+        assertEquals("ABC123", result.parsed.placa)
+        assertTrue(result.parsed.errores.joinToString(), result.parsed.valido)
+    }
+
+    @Test
+    fun `a partial correction can infer missing via before placa`() {
+        val previous = AviParser.parse("fuga vía 101 placa ABC123", setOf(101, 105))
+        val corrected = AviParser.mergeCorrection(
+            previous,
+            "105 placa ABC123",
+            setOf(101, 105)
+        )
+        assertTrue(corrected.errores.joinToString(), corrected.valido)
+        assertEquals(105, corrected.via)
+        assertEquals("ABC123", corrected.placa)
+        assertEquals("FUGA", corrected.accion)
+    }
 }

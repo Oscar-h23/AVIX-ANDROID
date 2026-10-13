@@ -583,6 +583,69 @@ class IncidentRepository internal constructor(
         }
     }
 
+    /**
+     * Obtiene en tiempo real las vías visibles para AVIX de la plaza del
+     * operador. No utiliza la caché: un fallo de red nunca permite escoger
+     * una vía que el supervisor haya deshabilitado.
+     */
+    suspend fun consultarViasHabilitadasParaEdicion():
+        Result<List<com.example.model.ViaDto>> =
+        withContext(ioDispatcher) {
+            try {
+                val owner = requireNotNull(currentOwner()) {
+                    "Inicie sesión para consultar las vías de su plaza."
+                }
+                val token = requireNotNull(sessionManager.getToken()) {
+                    "La sesión ha expirado. Inicie sesión nuevamente."
+                }
+
+                val response = apiFactory(
+                    owner.server,
+                    token
+                ).listarVias(owner.plazaId)
+
+                if (response.code() == 401) {
+                    expire(token)
+                }
+
+                check(response.isSuccessful) {
+                    "No se pudieron consultar las vías habilitadas de SIGO (${response.code()})."
+                }
+
+                check(
+                    currentOwner() == owner &&
+                        sessionManager.getToken() == token
+                ) {
+                    "La sesión cambió. Vuelva a abrir la edición."
+                }
+
+                val habilitadas = requireNotNull(response.body()) {
+                    "SIGO no devolvió una lista de vías válida."
+                }
+                    .filter { via ->
+                        via.activa &&
+                            via.numero > 0 &&
+                            (via.plazaId == null ||
+                                via.plazaId == owner.plazaId)
+                    }
+                    .distinctBy { it.numero }
+                    .sortedWith(
+                        compareBy<com.example.model.ViaDto> {
+                            it.orden ?: Int.MAX_VALUE
+                        }.thenBy { it.numero }
+                    )
+
+                // Mantener la validación de guardado alineada con SIGO.
+                _allowedVias.value = habilitadas.map { it.numero }.toSet()
+
+                Result.success(habilitadas)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
     private fun validate(
         placa: String,
         via: Int?,

@@ -113,6 +113,50 @@ class IncidentRepositoryTest {
         assertTrue(result.isFailure)
     }
 
+    @Test
+    fun `editing lists only enabled vias of current plaza in server order`() =
+        runBlocking {
+            api.viaResults = listOf(
+                ViaDto(plazaId = 3L, numero = 105, nombre = "Central", orden = 2),
+                ViaDto(plazaId = 3L, numero = 101, nombre = "Express", orden = 1),
+                ViaDto(plazaId = 3L, numero = 107, activa = false),
+                ViaDto(plazaId = 99L, numero = 108),
+                ViaDto(plazaId = 3L, numero = 0),
+                ViaDto(plazaId = 3L, numero = 101, orden = 3)
+            )
+
+            val result = repository.consultarViasHabilitadasParaEdicion()
+            assertTrue(result.isSuccess)
+            assertEquals(listOf(101, 105), result.getOrThrow().map { it.numero })
+            assertEquals("Express", result.getOrThrow().first().nombre)
+            assertTrue(repository.isViaPermitida(105))
+            assertFalse(repository.isViaPermitida(107))
+            assertFalse(repository.isViaPermitida(108))
+        }
+
+    @Test
+    fun `editing fails closed when server unavailable even with cached vias`() =
+        runBlocking {
+            assertTrue(repository.isViaPermitida(101))
+            api.viaCode = 503
+
+            val result = repository.consultarViasHabilitadasParaEdicion()
+
+            assertTrue(result.isFailure)
+        }
+
+    @Test
+    fun `editing treats empty enabled server list as no available vias`() =
+        runBlocking {
+            api.viaResults = emptyList()
+
+            val result = repository.consultarViasHabilitadasParaEdicion()
+
+            assertTrue(result.isSuccess)
+            assertTrue(result.getOrThrow().isEmpty())
+            assertFalse(repository.isViaPermitida(101))
+        }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `shared submit gate ignores a double tap while saving`() =
@@ -645,6 +689,8 @@ private class StubSigoApiService :
     SigoApiService {
 
     var postCode = 201
+    var viaCode = 200
+    var viaResults: List<ViaDto>? = null
     var vias =
         listOf(101)
     val postCalls =
@@ -677,15 +723,16 @@ private class StubSigoApiService :
 
     override suspend fun listarVias(
         plazaId: Long
-    ): Response<List<ViaDto>> =
-        Response.success(
-            vias.map { numero ->
-                ViaDto(
-                    plazaId = plazaId,
-                    numero = numero
-                )
+    ): Response<List<ViaDto>> {
+        if (viaCode !in 200..299) {
+            return Response.error(viaCode, "{}".toResponseBody(null))
+        }
+        return Response.success(
+            viaResults ?: vias.map { numero ->
+                ViaDto(plazaId = plazaId, numero = numero)
             }
         )
+    }
 
     override suspend fun registrarEvento(
         request: RegistroSigoRequest

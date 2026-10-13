@@ -59,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +98,7 @@ import com.example.voice.AviSpeechManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -355,7 +357,40 @@ fun FloatingOverlayContent(
     val isInDismissZone by isInDismissZoneFlow.collectAsState()
     val voiceState by speechManager.voiceState.collectAsState()
     val allowedVias by repository.allowedVias.collectAsState()
+    val session by repository.sessionState.collectAsState()
     val scope = rememberCoroutineScope()
+    var loadingVias by remember { mutableStateOf(false) }
+    var viasError by remember { mutableStateOf<String?>(null) }
+
+    // A diferencia del diálogo principal, el overlay vive en un Service.
+    // Al expandirlo debe recargar el catálogo asociado al operador actual.
+    suspend fun recargarViasDePlaza() {
+        val plazaId = repository.getUsuarioActual()?.plazaId
+        if (plazaId == null || !repository.isUsuarioAutenticado()) {
+            viasError = "Inicia sesión en AVIX con una plaza asignada."
+            return
+        }
+
+        loadingVias = true
+        viasError = null
+        try {
+            val vias = repository.cargarViasPermitidas(plazaId)
+            if (vias.isEmpty()) {
+                viasError = "No se pudieron obtener vías habilitadas para esta plaza. " +
+                    "Comprueba la conexión o reintenta la carga."
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            viasError = "No se pudo cargar el catálogo de vías. Intenta nuevamente."
+        } finally {
+            loadingVias = false
+        }
+    }
+
+    LaunchedEffect(expanded, session.usuario?.plazaId, session.token) {
+        if (expanded) recargarViasDePlaza()
+    }
 
     DisposableEffect(allowedVias) {
         speechManager.setAllowedVias(allowedVias)
@@ -389,6 +424,20 @@ fun FloatingOverlayContent(
                 valido = false
             )
         )
+    }
+
+    // La voz puede llegar antes que la respuesta de SIGO. Cuando se
+    // actualiza el catálogo, resolver "51" -> "151" sin borrar la placa.
+    LaunchedEffect(allowedVias) {
+        if (allowedVias.isNotEmpty()) {
+            val numeroReal = AviParser.normalizeViaNumber(viaInput, allowedVias)
+            if (numeroReal != null && numeroReal in allowedVias &&
+                viaInput != numeroReal.toString()
+            ) {
+                viaInput = numeroReal.toString()
+                lastParsedCommand = lastParsedCommand.copy(via = numeroReal)
+            }
+        }
     }
 
     // Conectar el resultado de voz con los campos.
@@ -791,13 +840,35 @@ fun FloatingOverlayContent(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(6.dp))
                 if (allowedVias.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Vías SIGO: ${allowedVias.sorted().joinToString(", ")}",
-                        fontSize = 9.sp,
-                        color = Color(0xFF64748B)
+                        text = "Vías de ${session.usuario?.plaza ?: "tu plaza"}: " +
+                            allowedVias.sorted().joinToString(", "),
+                        fontSize = 10.sp,
+                        color = Color(0xFF047857)
                     )
+                } else {
+                    Text(
+                        text = if (loadingVias) {
+                            "Cargando vías de ${session.usuario?.plaza ?: "la plaza"}..."
+                        } else {
+                            viasError ?: "No hay vías disponibles para el registro."
+                        },
+                        fontSize = 10.sp,
+                        color = if (loadingVias) Color(0xFF2563EB) else Color(0xFFB45309)
+                    )
+                    Spacer(modifier = Modifier.height(5.dp))
+                    OutlinedButton(
+                        onClick = { scope.launch { recargarViasDePlaza() } },
+                        enabled = !loadingVias && session.usuario?.plazaId != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (loadingVias) "CARGANDO VÍAS..." else "RECARGAR VÍAS DE SIGO",
+                            fontSize = 11.sp
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -863,7 +934,12 @@ fun FloatingOverlayContent(
                 // Botón REGISTRAR
                 Button(
                     onClick = {
-                        val viaNum = viaInput.toIntOrNull()
+                        val viaNum = AviParser.normalizeViaNumber(
+                            viaInput, allowedVias
+                        )
+                        if (viaNum != null && viaNum in allowedVias) {
+                            viaInput = viaNum.toString()
+                        }
 
                         speechManager.recordManualCorrection(
                             original = lastParsedCommand,
@@ -932,10 +1008,8 @@ fun FloatingOverlayContent(
                                 .replace(" ", "")
                                 .replace("-", "")
                         ) &&
-                        viaInput.toIntOrNull()
-                            ?.let {
-                                repository.isViaPermitida(it)
-                            } == true &&
+                        AviParser.normalizeViaNumber(viaInput, allowedVias)
+                            ?.let { repository.isViaPermitida(it) } == true &&
                         popupActions.any { (action, _) -> action == accionInput },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(

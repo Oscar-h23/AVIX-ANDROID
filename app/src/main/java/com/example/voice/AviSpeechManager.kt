@@ -68,6 +68,8 @@ class AviSpeechManager private constructor(private val appContext: Context) {
     private val offlineSpanishLanguages =
         listOf("es-ES", "es-MX", "es-US", "es-PE", "es")
     private var offlineLanguageAttempt = 0
+    private var onlineLanguageAttempt = 0
+    private val onlineSpanishLanguages = listOf("es-PE", "es-ES", "es-MX", "es-US", "es")
     private val noiseReducedAudioSource = NoiseReducedAudioSource()
     private var enhancedAudioActive = false
     private var currentAttemptUsesEnhancedAudio = false
@@ -917,6 +919,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
         automaticRetryInProgress = false
         currentAttemptUsesEnhancedAudio = false
         offlineLanguageAttempt = 0
+        onlineLanguageAttempt = 0
         clearPrimaryAttempt()
 
         _voiceState.value = _voiceState.value.copy(
@@ -1024,7 +1027,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                     val language = if (!networkAvailable) {
                         offlineSpanishLanguages[offlineLanguageAttempt]
                     } else {
-                        "es-PE"
+                        onlineSpanishLanguages[onlineLanguageAttempt]
                     }
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)

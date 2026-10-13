@@ -729,6 +729,25 @@ class AviSpeechManager private constructor(private val appContext: Context) {
             }
         }
 
+        // También manejar CODE_12 cuando los datos móviles siguen activos
+        // aunque el usuario haya desactivado el Wi-Fi.
+        if (hasValidatedInternet() && isOfflineLanguageError &&
+            onlineLanguageAttempt < onlineSpanishLanguages.lastIndex
+        ) {
+            onlineLanguageAttempt++
+            val nextLanguage = onlineSpanishLanguages[onlineLanguageAttempt]
+            _voiceState.value = _voiceState.value.copy(
+                isListening = false,
+                stageDescription = "Probando reconocimiento en $nextLanguage...",
+                errorMessage = null
+            )
+            mainHandler.postDelayed({
+                initRecognizer(preferOnDevice = false)
+                startListeningInternal(preferEnhancedAudio = false)
+            }, 250L)
+            return
+        }
+
         if (
             wasAutomaticRetry &&
             primaryInterpretedText.isNotBlank()

@@ -1015,6 +1015,48 @@ object AviParser {
     }
 
     /**
+     * Cambia un solo carácter cuando se indica explícitamente su posición.
+     * Ejemplo: "corrige último dígito negativo". No sustituye la placa
+     * completa ni adivina caracteres a partir de semejanza visual.
+     */
+    private fun correctSinglePlateCharacter(
+        previous: ParsedCommand,
+        cleanCorrection: String
+    ): String? {
+        if (!isValidPeruPlate(previous.placa)) return null
+
+        val command = Regex(
+            """^(?:(?:corrige|corregir|cambia|cambiar)\s+)?""" +
+                """(?:el\s+)?""" +
+                """(primer|primero|segundo|tercero|cuarto|quinto|sexto|ultimo)""" +
+                """\s+(?:caracter|digito|numero|simbolo)\s+""" +
+                """(?:(?:a|por|es)\s+)?(.+)$"""
+        ).matchEntire(cleanCorrection) ?: return null
+
+        val index = when (command.groupValues[1]) {
+            "primer", "primero" -> 0
+            "segundo" -> 1
+            "tercero" -> 2
+            "cuarto" -> 3
+            "quinto" -> 4
+            "sexto", "ultimo" -> 5
+            else -> return null
+        }
+
+        val value = parsePlaca(command.groupValues[2])
+        if (value.length != 1) return null
+
+        val validSymbol = when (index) {
+            0 -> value[0] in 'A'..'Z'
+            1, 2 -> value[0].isLetterOrDigit()
+            else -> value[0].isDigit()
+        }
+        if (!validSymbol) return null
+
+        return previous.placa.replaceRange(index, index + 1, value)
+    }
+
+    /**
      * Fusiona una corrección corta con el resultado anterior.
      * Permite decir únicamente "placa ...", "vía ..." o "derivado/fuga"
      * sin repetir todo el comando.
@@ -1025,6 +1067,33 @@ object AviParser {
         allowedVias: Set<Int> = emptySet()
     ): ParsedCommand {
         val clean = normalize(rawCorrection)
+
+        correctSinglePlateCharacter(previous, clean)?.let { correctedPlate ->
+            val merged = mergeCorrection(
+                previous = previous,
+                rawCorrection = "placa $correctedPlate",
+                allowedVias = allowedVias
+            )
+            return merged.copy(
+                textoOriginal = listOf(previous.textoOriginal, rawCorrection)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" | corrección: ")
+            )
+        }
+
+        if (clean.startsWith("corrige ") || clean.startsWith("cambia ")) {
+            val refersToCharacter = listOf("digito", "numero", "caracter", "simbolo")
+                .any { " $it " in " $clean " }
+            if (refersToCharacter) {
+                return previous.copy(
+                    valido = false,
+                    errores = listOf(
+                        "No pude corregir ese carácter. Indica la posición y un único símbolo válido."
+                    )
+                )
+            }
+        }
+
         val fresh = parse(rawCorrection, allowedVias)
 
         val hasAction = actionDetected(clean)

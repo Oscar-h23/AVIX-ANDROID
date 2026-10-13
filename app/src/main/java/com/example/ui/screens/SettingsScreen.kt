@@ -275,7 +275,7 @@ fun PantallaConfiguracion(repository: IncidentRepository) {
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Acierto en primer intento: $voiceSuccessRate%",
+                    text = "Dictados completos al primer intento: $voiceSuccessRate%",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -291,6 +291,16 @@ fun PantallaConfiguracion(repository: IncidentRepository) {
                 )
                 Text(
                     text = "Fallos detectados — acción: ${voiceMetrics.missingAction}, vía: ${voiceMetrics.missingVia}, placa: ${voiceMetrics.missingPlate}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (voiceMetrics.timedRecognitionCount > 0) {
+                        "Tiempo promedio del dictado: ${voiceMetrics.averageRecognitionMs} ms " +
+                            "(${voiceMetrics.timedRecognitionCount} resultados)"
+                    } else {
+                        "Tiempo del dictado: se medirá después del primer reconocimiento."
+                    },
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

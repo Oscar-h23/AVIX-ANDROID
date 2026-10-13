@@ -720,7 +720,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                     errorMessage = null
                 )
                 mainHandler.postDelayed({
-                    initRecognizer(preferOnDevice = true)
+                    initRecognizer(preferOnDevice = canUseOnDeviceRecognition())
                     startListeningInternal(preferEnhancedAudio = false)
                 }, 250L)
                 return

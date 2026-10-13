@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -46,7 +47,9 @@ data class VoiceMetricsSnapshot(
     val manualCorrections: Int,
     val plateCorrections: Int,
     val viaCorrections: Int,
-    val actionCorrections: Int
+    val actionCorrections: Int,
+    val averageRecognitionMs: Long,
+    val timedRecognitionCount: Int
 )
 
 class AviSpeechManager private constructor(private val appContext: Context) {
@@ -54,6 +57,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main)
     private var simulationJob: Job? = null
+    private var speechStartTimestampMs: Long? = null
 
     private var allowedVias: Set<Int> = emptySet()
     private val metricsPrefs = appContext.getSharedPreferences(
@@ -120,7 +124,13 @@ class AviSpeechManager private constructor(private val appContext: Context) {
             manualCorrections = metricsPrefs.getInt(KEY_MANUAL_CORRECTIONS, 0),
             plateCorrections = metricsPrefs.getInt(KEY_PLATE_CORRECTIONS, 0),
             viaCorrections = metricsPrefs.getInt(KEY_VIA_CORRECTIONS, 0),
-            actionCorrections = metricsPrefs.getInt(KEY_ACTION_CORRECTIONS, 0)
+            actionCorrections = metricsPrefs.getInt(KEY_ACTION_CORRECTIONS, 0),
+            averageRecognitionMs = metricsPrefs.getLong(KEY_LATENCY_TOTAL_MS, 0L)
+                .let { total ->
+                    val count = metricsPrefs.getInt(KEY_LATENCY_COUNT, 0)
+                    if (count > 0) total / count else 0L
+                },
+            timedRecognitionCount = metricsPrefs.getInt(KEY_LATENCY_COUNT, 0)
         )
     }
 
@@ -153,6 +163,17 @@ class AviSpeechManager private constructor(private val appContext: Context) {
         matches: List<String>,
         selected: String
     ) {
+        speechStartTimestampMs?.let { start ->
+            val elapsed = (SystemClock.elapsedRealtime() - start)
+                .coerceIn(0L, 60_000L)
+            val count = metricsPrefs.getInt(KEY_LATENCY_COUNT, 0)
+            val total = metricsPrefs.getLong(KEY_LATENCY_TOTAL_MS, 0L)
+            metricsPrefs.edit()
+                .putInt(KEY_LATENCY_COUNT, count + 1)
+                .putLong(KEY_LATENCY_TOTAL_MS, total + elapsed)
+                .apply()
+        }
+        speechStartTimestampMs = null
         incrementMetric(KEY_ATTEMPTS)
 
         val selectedIndex = matches.indexOf(selected)
@@ -908,6 +929,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                 )
             }, 300)
         } else {
+            speechStartTimestampMs = null
             clearPrimaryAttempt()
 
             val errorName =
@@ -1133,6 +1155,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                     errorMessage = null
                 )
 
+                speechStartTimestampMs = SystemClock.elapsedRealtime()
                 speechRecognizer?.startListening(intent)
 
                 // Límite de seguridad. Cerrar el pipe evita sesiones colgadas en
@@ -1158,6 +1181,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
 
     fun stopListening() {
         simulationJob?.cancel()
+        speechStartTimestampMs = null
         mainHandler.post {
             if (enhancedAudioActive) {
                 noiseReducedAudioSource.finishInput()
@@ -1212,6 +1236,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
 
     fun destroy() {
         simulationJob?.cancel()
+        speechStartTimestampMs = null
         mainHandler.post {
             cleanupEnhancedAudio()
             try {
@@ -1234,6 +1259,8 @@ class AviSpeechManager private constructor(private val appContext: Context) {
         private const val KEY_PLATE_CORRECTIONS = "plate_corrections"
         private const val KEY_VIA_CORRECTIONS = "via_corrections"
         private const val KEY_ACTION_CORRECTIONS = "action_corrections"
+        private const val KEY_LATENCY_TOTAL_MS = "recognition_latency_total_ms"
+        private const val KEY_LATENCY_COUNT = "recognition_latency_count"
         private const val ENHANCED_AUDIO_MAX_DURATION_MS = 9_500L
 
         @Volatile

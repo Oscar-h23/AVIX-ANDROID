@@ -140,7 +140,9 @@ fun PlateConfidenceHint(
         ) {
             Text(
                 text =
-                    "Revisa los caracteres resaltados: tuvieron menor consenso en el reconocimiento.",
+                    "Revisa las posiciones ${uncertainPositions.joinToString(", ") { (it + 1).toString() }}: " +
+                        "hay alternativas distintas. Puedes corregir solo un carácter por voz, " +
+                        "por ejemplo «corrige último dígito negativo», o editar la placa.",
                 fontSize = 11.sp,
                 color = Color(0xFFB45309),
                 modifier =

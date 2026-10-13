@@ -228,6 +228,17 @@ object AviParser {
             if (qPhrase.isNotBlank()) {
                 phrases += "vía $qPhrase"
             }
+
+            // También orientar al reconocedor con los dos últimos dígitos
+            // de las vías 101..199 habilitadas en la plaza.
+            if (via in 101..199) {
+                val shortForm = (via - 100).toString().padStart(2, '0')
+                phrases += "vía $shortForm"
+                val shortQ = shortForm.map { digit ->
+                    canonicalQDigits[digit.digitToInt()]
+                }.joinToString(" ")
+                phrases += "vía $shortQ"
+            }
         }
 
         // Contexto de placa: palabra clave + fonética esperada.
@@ -1016,7 +1027,11 @@ object AviParser {
         // normalizeOperationalContext confirmó "NÚMERO placa".
         // Fuera de ese patrón se deja sin clasificar, para revisión.
         val viaParsed = if (viaStart >= 0) {
-            parseVia(viaWords, clean)
+            resolveShortVia(
+                parseVia(viaWords, clean),
+                viaWords,
+                allowedVias
+            )
         } else {
             null
         }
@@ -1198,6 +1213,40 @@ object AviParser {
             errores = errores,
             advertencias = emptyList()
         )
+    }
+
+    /**
+     * Permite dictar el sufijo de dos dígitos de vías de la serie 100:
+     * "vía 51" / "vía cincuenta y uno" / "vía quinto primero" -> 151.
+     *
+     * Solo se amplía cuando la vía 1xx existe en el catálogo habilitado.
+     * Una vía corta real tiene prioridad (51 gana frente a 151).
+     * Un dígito suelto no se convierte: "vía 1" puede ser ambiguo.
+     *
+     * Para 101..109 se admite "01", "02", etc., incluidos los dos
+     * dígitos de código Q: "negativo primero", "negativo segundo".
+     */
+    private fun resolveShortVia(
+        spokenVia: Int?,
+        rawVia: String,
+        allowedVias: Set<Int>
+    ): Int? {
+        val number = spokenVia ?: return null
+        if (number in allowedVias || allowedVias.isEmpty()) return number
+
+        val words = rawVia.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val leadingZeroWritten = words.firstOrNull()
+            ?.matches(Regex("0[1-9]")) == true
+        val leadingZeroQ = words.size >= 2 &&
+            words[0] in setOf("negativo", "negativa", "cero") &&
+            words[1].let { singleDigits[it] in 1..9 }
+
+        val isTwoDigitForm = number in 10..99 ||
+            (number in 1..9 && (leadingZeroWritten || leadingZeroQ))
+        if (!isTwoDigitForm) return number
+
+        val expanded = 100 + number
+        return expanded.takeIf { it in allowedVias } ?: number
     }
 
     private fun parseVia(

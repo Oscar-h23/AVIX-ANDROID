@@ -744,7 +744,9 @@ object AviParser {
                 .replace("-", "")
                 .replace(" ", "")
 
-            if (analysis.plateMarkerDetected && plate.isNotBlank()) {
+            // Las placas parciales desplazan posiciones y contaminan el voto
+            // de caracteres (p. ej. I1L10 frente a I1L110).
+            if (analysis.plateMarkerDetected && isValidPeruPlate(plate)) {
                 val fullPlateBonus =
                     if (isValidPeruPlate(plate)) 0.45f else 0f
 
@@ -794,7 +796,20 @@ object AviParser {
 
         val finalAction = actionWinner ?: fallbackAction
         val finalVia = viaWinner ?: fallbackVia
+        val validIndividualPlates = usable.mapNotNull { candidate ->
+            parse(candidate, allowedVias).placa
+                .takeIf(::isValidPeruPlate)
+        }.toSet()
+
+        // Si la votación crea una placa no pronunciada en ninguna hipótesis,
+        // exigir consenso alto en todas sus posiciones. De lo contrario,
+        // conservar la mejor placa completa detectada.
+        val votedPlateHasSupport = validIndividualPlates.contains(votedPlate) ||
+            (validIndividualPlates.isEmpty() ||
+                plateConfidences.all { it >= 0.72f })
         val finalPlate = when {
+            isValidPeruPlate(votedPlate) && votedPlateHasSupport -> votedPlate
+            isValidPeruPlate(fallbackPlate) -> fallbackPlate
             isValidPeruPlate(votedPlate) -> votedPlate
             fallbackPlate.isNotBlank() -> fallbackPlate
             else -> votedPlate
@@ -850,7 +865,22 @@ object AviParser {
             sourceCount = usable.size,
             actionConfidence = actionConfidence,
             viaConfidence = viaConfidence,
-            platePositionConfidence = plateConfidences
+            // La confianza debe describir los caracteres efectivamente
+            // mostrados, no una placa alternativa descartada.
+            platePositionConfidence = (0..5).map { index ->
+                val chosen = selectedParsed.placa.getOrNull(index)
+                if (chosen == null || !isValidPeruPlate(selectedParsed.placa)) {
+                    0f
+                } else {
+                    val votes = plateVotes[index]
+                    val total = votes.values.sum()
+                    if (total > 0f) {
+                        (votes[chosen] ?: 0f) / total
+                    } else {
+                        0f
+                    }
+                }
+            }
         )
     }
 

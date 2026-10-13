@@ -1043,17 +1043,28 @@ object AviParser {
             else -> return null
         }
 
-        val value = parsePlaca(command.groupValues[2])
-        if (value.length != 1) return null
+        // parsePlaca exige un prefijo completo, así que no sirve para
+        // instrucciones de un único dígito como "negativo".
+        val spokenSymbol = command.groupValues[2].trim()
+        val symbol = when {
+            spokenSymbol in singleDigits ->
+                singleDigits.getValue(spokenSymbol).digitToChar()
+            spokenSymbol in phoneticAlphabet ->
+                phoneticAlphabet.getValue(spokenSymbol).single()
+            spokenSymbol.length == 1 &&
+                spokenSymbol[0].isLetterOrDigit() ->
+                spokenSymbol.uppercase(Locale.ROOT)[0]
+            else -> null
+        } ?: return null
 
         val validSymbol = when (index) {
-            0 -> value[0] in 'A'..'Z'
-            1, 2 -> value[0].isLetterOrDigit()
-            else -> value[0].isDigit()
+            0 -> symbol in 'A'..'Z'
+            1, 2 -> symbol.isLetterOrDigit()
+            else -> symbol.isDigit()
         }
         if (!validSymbol) return null
 
-        return previous.placa.replaceRange(index, index + 1, value)
+        return previous.placa.replaceRange(index, index + 1, symbol.toString())
     }
 
     /**

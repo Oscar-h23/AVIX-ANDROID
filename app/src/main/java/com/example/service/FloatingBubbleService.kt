@@ -100,6 +100,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+// Acciones disponibles en el panel flotante y sus colores de selección.
+private val popupActions = listOf(
+    "FUGA" to Color(0xFFDC2626),
+    "DERIVADO" to Color(0xFFD97706),
+    "LIBERADO" to Color(0xFF059669)
+)
+
 class FloatingBubbleService : Service() {
 
     private var windowManager: WindowManager? = null
@@ -661,31 +668,33 @@ fun FloatingOverlayContent(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Selector de Acción: FUGA vs DERIVADO
+                // Selector de acción: FUGA, DERIVADO y LIBERADO.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    FilterChip(
-                        selected = accionInput == "FUGA",
-                        onClick = { accionInput = "FUGA" },
-                        label = { Text("FUGA", fontWeight = FontWeight.Bold) },
-                        modifier = Modifier.weight(1f),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFDC2626),
-                            selectedLabelColor = Color.White
+                    popupActions.forEach { (action, selectedColor) ->
+                        FilterChip(
+                            selected = accionInput == action,
+                            onClick = {
+                                accionInput = action
+                                mensajeVoz = null
+                            },
+                            label = {
+                                Text(
+                                    text = action,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    maxLines = 1
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = selectedColor,
+                                selectedLabelColor = Color.White
+                            )
                         )
-                    )
-                    FilterChip(
-                        selected = accionInput == "DERIVADO",
-                        onClick = { accionInput = "DERIVADO" },
-                        label = { Text("DERIVADO", fontWeight = FontWeight.Bold) },
-                        modifier = Modifier.weight(1f),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFD97706),
-                            selectedLabelColor = Color.White
-                        )
-                    )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -927,10 +936,7 @@ fun FloatingOverlayContent(
                             ?.let {
                                 repository.isViaPermitida(it)
                             } == true &&
-                        accionInput in listOf(
-                            "FUGA",
-                            "DERIVADO"
-                        ),
+                        popupActions.any { (action, _) -> action == accionInput },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF0B5CAB)

@@ -467,6 +467,28 @@ object AviParser {
             }
         }
 
+        // 4) Inferencia estricta de VÍA: si Android omite su etiqueta
+        // pero reconoce un número inmediatamente antes de "placa",
+        // insertar la etiqueta sin tocar ni la acción ni el bloque de placa.
+        // Ej.: "fuga 101 105 placa ABC123" -> "fuga 101 via 105 placa ABC123".
+        // No se infiere a partir de números sin "placa", ni si ya hay vía
+        // (o un marcador equivalente) antes de la placa.
+        val plateIndex = tokens.indexOf("placa")
+        if (plateIndex > 0) {
+            val hasExplicitVia = tokens.take(plateIndex).any {
+                it == "via" || it == "carril" ||
+                    it == "pista" || it == "numero"
+            }
+            val numberImmediatelyBeforePlate = tokens[plateIndex - 1]
+            if (
+                !hasExplicitVia &&
+                numberImmediatelyBeforePlate.all { it.isDigit() } &&
+                numberImmediatelyBeforePlate.toIntOrNull()?.let { it > 0 } == true
+            ) {
+                tokens.add(plateIndex - 1, "via")
+            }
+        }
+
         return tokens.joinToString(" ")
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -990,7 +1012,14 @@ object AviParser {
                 )
         }
 
-        val viaParsed = parseVia(viaWords, clean)
+        // Un número sin etiqueta solo puede clasificarse como vía si
+        // normalizeOperationalContext confirmó "NÚMERO placa".
+        // Fuera de ese patrón se deja sin clasificar, para revisión.
+        val viaParsed = if (viaStart >= 0) {
+            parseVia(viaWords, clean)
+        } else {
+            null
+        }
         when {
             viaStart < 0 ->
                 errores.add("No se detectó la palabra VÍA.")

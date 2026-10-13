@@ -376,6 +376,41 @@ fun PantallaEscucha(
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center
             )
+
+            val issue = voiceState.errorMessage.orEmpty()
+            if (issue.contains("offline", ignoreCase = true) ||
+                issue.contains("sin conexión", ignoreCase = true) ||
+                issue.contains("modelo de español", ignoreCase = true)
+            ) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        // El paquete de reconocimiento sin conexión es del
+                        // teléfono, no de SIGO. Abrir su configuración.
+                        try {
+                            context.startActivity(
+                                Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+                            )
+                        } catch (_: Exception) {
+                            context.startActivity(
+                                Intent(Settings.ACTION_SETTINGS)
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Configurar reconocimiento sin internet")
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Conéctate una vez para instalar Español en los " +
+                        "idiomas de voz sin conexión. Después prueba con " +
+                        "Wi-Fi y datos móviles apagados.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))

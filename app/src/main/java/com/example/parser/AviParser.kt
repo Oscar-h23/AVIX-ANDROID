@@ -1239,7 +1239,7 @@ object AviParser {
             ?.matches(Regex("0[1-9]")) == true
         val leadingZeroQ = words.size >= 2 &&
             words[0] in setOf("negativo", "negativa", "cero") &&
-            words[1].let { singleDigits[it] in 1..9 }
+            (singleDigits[words[1]]?.let { it in 1..9 } == true)
 
         val isTwoDigitForm = number in 10..99 ||
             (number in 1..9 && (leadingZeroWritten || leadingZeroQ))

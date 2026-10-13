@@ -63,6 +63,11 @@ class AviSpeechManager private constructor(private val appContext: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var usingOnDeviceRecognizer = false
+    // El modelo offline no siempre acepta es-PE. Probar otras variantes
+    // del español disponibles en el teléfono, nunca un servidor remoto.
+    private val offlineSpanishLanguages =
+        listOf("es-ES", "es-MX", "es-US", "es-PE", "es")
+    private var offlineLanguageAttempt = 0
     private val noiseReducedAudioSource = NoiseReducedAudioSource()
     private var enhancedAudioActive = false
     private var currentAttemptUsesEnhancedAudio = false
@@ -371,9 +376,13 @@ class AviSpeechManager private constructor(private val appContext: Context) {
             val useOnDevice =
                 preferOnDevice && canUseOnDeviceRecognition()
 
+            // Offline: nunca usar el motor estándar de red como sustituto.
             isRecognizerAvailable =
-                useOnDevice ||
+                if (preferOnDevice) {
+                    useOnDevice
+                } else {
                     SpeechRecognizer.isRecognitionAvailable(appContext)
+                }
 
             if (isRecognizerAvailable) {
                 speechRecognizer?.destroy()
@@ -679,6 +688,8 @@ class AviSpeechManager private constructor(private val appContext: Context) {
             SpeechRecognizer.ERROR_NO_MATCH -> "NO_MATCH"
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RECOGNIZER_BUSY"
             SpeechRecognizer.ERROR_SERVER -> "SERVER"
+            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "LANGUAGE_NOT_SUPPORTED"
+            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "LANGUAGE_UNAVAILABLE"
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH_TIMEOUT"
             else -> "CODE_$errorCode"
         }
@@ -692,6 +703,31 @@ class AviSpeechManager private constructor(private val appContext: Context) {
 
         cleanupEnhancedAudio()
         currentAttemptUsesEnhancedAudio = false
+
+        // CODE_12: el reconocedor no admite el idioma solicitado.
+        // CODE_13: está admitido, pero el modelo todavía no está instalado.
+        val isOfflineLanguageError =
+            errorCode == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                errorCode == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+
+        if (!hasValidatedInternet() && isOfflineLanguageError) {
+            if (usingOnDeviceRecognizer &&
+                offlineLanguageAttempt < offlineSpanishLanguages.lastIndex
+            ) {
+                offlineLanguageAttempt++
+                val nextLanguage = offlineSpanishLanguages[offlineLanguageAttempt]
+                _voiceState.value = _voiceState.value.copy(
+                    isListening = false,
+                    stageDescription = "Probando español offline ($nextLanguage)...",
+                    errorMessage = null
+                )
+                mainHandler.postDelayed({
+                    initRecognizer(preferOnDevice = true)
+                    startListeningInternal(preferEnhancedAudio = false)
+                }, 250L)
+                return
+            }
+        }
 
         if (
             wasAutomaticRetry &&
@@ -816,6 +852,16 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                 SpeechRecognizer.ERROR_SERVER ->
                     "Error en el servidor de reconocimiento." to false
 
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                    if (!hasValidatedInternet()) {
+                        "No hay un modelo de español offline compatible instalado. " +
+                            "Conéctate a Wi-Fi una vez, descarga Español para " +
+                            "reconocimiento sin conexión en los ajustes de voz del teléfono y vuelve a intentarlo." to false
+                    } else {
+                        "El servicio de voz no admite el idioma seleccionado." to false
+                    }
+
                 else ->
                     "Error en el reconocimiento de voz (código $errorCode)." to false
             }
@@ -872,6 +918,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
         automaticEnhancedRetryAttempted = false
         automaticRetryInProgress = false
         currentAttemptUsesEnhancedAudio = false
+        offlineLanguageAttempt = 0
         clearPrimaryAttempt()
 
         _voiceState.value = _voiceState.value.copy(
@@ -924,6 +971,22 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                 val shouldUseOnDevice =
                     !networkAvailable && onDeviceAvailable
 
+                if (!networkAvailable && !onDeviceAvailable) {
+                    speechRecognizer?.destroy()
+                    speechRecognizer = null
+                    isRecognizerAvailable = false
+                    usingOnDeviceRecognizer = false
+                    _voiceState.value = _voiceState.value.copy(
+                        isListening = false,
+                        stageDescription = "Reconocimiento de voz offline no disponible.",
+                        errorMessage =
+                            "Este teléfono no tiene un motor de voz local activo. " +
+                                "Conéctate a Wi-Fi y configura Reconocimiento de voz " +
+                                "sin conexión en los ajustes de entrada de voz."
+                    )
+                    return@post
+                }
+
                 if (
                     speechRecognizer == null ||
                     usingOnDeviceRecognizer != shouldUseOnDevice
@@ -958,12 +1021,12 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-PE")
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-PE")
-                    putExtra(
-                        RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE,
+                    val language = if (shouldUseOnDevice) {
+                        offlineSpanishLanguages[offlineLanguageAttempt]
+                    } else {
                         "es-PE"
-                    )
+                    }
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     putExtra(

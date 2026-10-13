@@ -711,9 +711,7 @@ class AviSpeechManager private constructor(private val appContext: Context) {
                 errorCode == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
 
         if (!hasValidatedInternet() && isOfflineLanguageError) {
-            if (usingOnDeviceRecognizer &&
-                offlineLanguageAttempt < offlineSpanishLanguages.lastIndex
-            ) {
+            if (offlineLanguageAttempt < offlineSpanishLanguages.lastIndex) {
                 offlineLanguageAttempt++
                 val nextLanguage = offlineSpanishLanguages[offlineLanguageAttempt]
                 _voiceState.value = _voiceState.value.copy(

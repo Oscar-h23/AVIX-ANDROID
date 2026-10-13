@@ -105,7 +105,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -193,7 +192,7 @@ fun PantallaHistorial(
         mutableStateOf("")
     }
     var currentPage by rememberSaveable {
-        mutableIntStateOf(1)
+        mutableStateOf(1)
     }
     var editingIncident by remember {
         mutableStateOf<Incident?>(null)
@@ -700,7 +699,7 @@ fun EditarIncidenciaDialog(
         mutableStateOf<String?>(null)
     }
     var recargarVias by remember(item.id) {
-        mutableIntStateOf(0)
+        mutableStateOf(0)
     }
 
     // Refrescar desde SIGO cada vez que se abre la edición; nunca usar

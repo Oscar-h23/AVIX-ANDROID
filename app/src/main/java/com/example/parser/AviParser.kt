@@ -1226,6 +1226,20 @@ object AviParser {
      * Para 101..109 se admite "01", "02", etc., incluidos los dos
      * dígitos de código Q: "negativo primero", "negativo segundo".
      */
+    /**
+     * Normaliza una vía numérica ya reconocida o editada en pantalla.
+     * La burbuja y la pantalla principal comparten el mismo catálogo
+     * de vías; nunca se amplía a una vía deshabilitada.
+     */
+    fun normalizeViaNumber(
+        rawVia: String,
+        allowedVias: Set<Int>
+    ): Int? {
+        val raw = rawVia.trim()
+        if (raw.isEmpty() || raw.any { !it.isDigit() }) return null
+        return resolveShortVia(raw.toIntOrNull(), raw, allowedVias)
+    }
+
     private fun resolveShortVia(
         spokenVia: Int?,
         rawVia: String,

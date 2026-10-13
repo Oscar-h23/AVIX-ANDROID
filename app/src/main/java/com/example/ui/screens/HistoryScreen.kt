@@ -137,6 +137,7 @@ import com.example.model.EstadoSincronizacion
 import com.example.model.Incident
 import com.example.model.ParsedCommand
 import com.example.model.VoiceState
+import com.example.model.ViaDto
 import com.example.parser.AviParser
 import com.example.service.FloatingBubbleService
 import com.example.ui.registration.PlateConfidenceHint
@@ -177,9 +178,6 @@ fun PantallaHistorial(
         .collectAsStateWithLifecycle()
     val lastSyncSummary by repository.lastSyncSummary
         .collectAsStateWithLifecycle()
-    val allowedVias by repository.allowedVias
-        .collectAsStateWithLifecycle()
-
     var filtroSeleccionado by rememberSaveable {
         mutableStateOf(
             HistoryStatusFilter.TODOS
@@ -654,7 +652,6 @@ fun PantallaHistorial(
         EditarIncidenciaDialog(
             repository = repository,
             item = item,
-            allowedVias = allowedVias,
             onDismiss = {
                 editingIncident = null
             },
@@ -669,7 +666,6 @@ fun PantallaHistorial(
 fun EditarIncidenciaDialog(
     repository: IncidentRepository,
     item: Incident,
-    allowedVias: Set<Int>,
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
@@ -693,6 +689,31 @@ fun EditarIncidenciaDialog(
     }
     var errorMessage by remember(item.id) {
         mutableStateOf<String?>(null)
+    }
+    var viasDisponibles by remember(item.id) {
+        mutableStateOf<List<ViaDto>>(emptyList())
+    }
+    var cargandoVias by remember(item.id) {
+        mutableStateOf(true)
+    }
+    var errorVias by remember(item.id) {
+        mutableStateOf<String?>(null)
+    }
+    var recargarVias by remember(item.id) {
+        mutableIntStateOf(0)
+    }
+
+    // Refrescar desde SIGO cada vez que se abre la edición; nunca usar
+    // la caché local como autorización para modificar una vía.
+    LaunchedEffect(item.id, recargarVias) {
+        cargandoVias = true
+        errorVias = null
+        viaMenuExpanded = false
+
+        val response = repository.consultarViasHabilitadasParaEdicion()
+        viasDisponibles = response.getOrDefault(emptyList())
+        errorVias = response.exceptionOrNull()?.message
+        cargandoVias = false
     }
 
     androidx.compose.material3.AlertDialog(
@@ -771,18 +792,72 @@ fun EditarIncidenciaDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (allowedVias.isNotEmpty()) {
+                Text(
+                    text = "Vía habilitada en SIGO",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (cargandoVias) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            "Consultando vías de la plaza...",
+                            fontSize = 12.sp
+                        )
+                    }
+                } else if (errorVias != null) {
+                    Text(
+                        text = errorVias
+                            ?: "No se pudieron consultar las vías habilitadas.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { recargarVias++ },
+                        enabled = !isSaving
+                    ) {
+                        Text("Reintentar consulta")
+                    }
+                } else if (viasDisponibles.isEmpty()) {
+                    Text(
+                        text = "No hay vías habilitadas para esta plaza. Consulte al supervisor.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { recargarVias++ },
+                        enabled = !isSaving
+                    ) {
+                        Text("Actualizar vías")
+                    }
+                } else {
+                    val viaSeleccionada = viaInput.toIntOrNull()
+                        ?.let { numero ->
+                            viasDisponibles.firstOrNull { it.numero == numero }
+                        }
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
-                            onClick = {
-                                viaMenuExpanded = true
-                            },
+                            onClick = { viaMenuExpanded = true },
+                            enabled = !isSaving,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = viaInput.toIntOrNull()
-                                    ?.let { "Vía $it" }
-                                    ?: "Seleccionar vía",
+                                text = viaSeleccionada?.let {
+                                    "Vía ${it.numero}" +
+                                        (it.nombre?.takeIf(String::isNotBlank)
+                                            ?.let { nombre -> " · $nombre" } ?: "")
+                                } ?: "Seleccionar vía habilitada",
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Start
                             )
@@ -794,17 +869,19 @@ fun EditarIncidenciaDialog(
 
                         DropdownMenu(
                             expanded = viaMenuExpanded,
-                            onDismissRequest = {
-                                viaMenuExpanded = false
-                            }
+                            onDismissRequest = { viaMenuExpanded = false }
                         ) {
-                            allowedVias.sorted().forEach { via ->
+                            viasDisponibles.forEach { via ->
                                 DropdownMenuItem(
                                     text = {
-                                        Text("Vía $via")
+                                        Text(
+                                            "Vía ${via.numero}" +
+                                                (via.nombre?.takeIf(String::isNotBlank)
+                                                    ?.let { nombre -> " · $nombre" } ?: "")
+                                        )
                                     },
                                     onClick = {
-                                        viaInput = via.toString()
+                                        viaInput = via.numero.toString()
                                         viaMenuExpanded = false
                                         errorMessage = null
                                     }
@@ -812,22 +889,15 @@ fun EditarIncidenciaDialog(
                             }
                         }
                     }
-                } else {
-                    OutlinedTextField(
-                        value = viaInput,
-                        onValueChange = {
-                            if (it.all { ch -> ch.isDigit() }) {
-                                viaInput = it
-                                errorMessage = null
-                            }
-                        },
-                        label = { Text("Vía") },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+
+                    if (viaSeleccionada == null && item.via != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "La vía ${item.via} del registro ya no está habilitada. Seleccione otra vía.",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
 
                 errorMessage?.let { message ->
@@ -850,8 +920,8 @@ fun EditarIncidenciaDialog(
                         return@Button
                     }
 
-                    if (via == null || via <= 0) {
-                        errorMessage = "Seleccione una vía válida."
+                    if (via == null || viasDisponibles.none { it.numero == via }) {
+                        errorMessage = "Seleccione una vía habilitada por SIGO."
                         return@Button
                     }
 
@@ -859,6 +929,24 @@ fun EditarIncidenciaDialog(
                     errorMessage = null
 
                     scope.launch {
+                        // Comprobar de nuevo antes de guardar: una vía pudo
+                        // deshabilitarse mientras el diálogo estaba abierto.
+                        val consulta = repository.consultarViasHabilitadasParaEdicion()
+                        if (consulta.isFailure) {
+                            errorVias = consulta.exceptionOrNull()?.message
+                                ?: "No se pudieron verificar las vías."
+                            isSaving = false
+                            return@launch
+                        }
+
+                        viasDisponibles = consulta.getOrThrow()
+                        if (viasDisponibles.none { it.numero == via }) {
+                            errorMessage =
+                                "La vía $via fue deshabilitada. Seleccione otra vía."
+                            isSaving = false
+                            return@launch
+                        }
+
                         val result = repository.actualizarIncidencia(
                             id = item.id,
                             placa = placaInput,
@@ -882,7 +970,8 @@ fun EditarIncidenciaDialog(
                         }
                     }
                 },
-                enabled = !isSaving
+                enabled = !isSaving && !cargandoVias &&
+                    errorVias == null && viasDisponibles.isNotEmpty()
             ) {
                 if (isSaving) {
                     CircularProgressIndicator(
